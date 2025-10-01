@@ -1,0 +1,24 @@
+/* 
+Using a global CSS file and @apply
+
+Even though the Tailwind maintainers recommend not using @apply 
+we think it's the best way to define styles for flexible, user written content like Tiptaps content. 
+You can use a global CSS file and apply Tailwind styles to HTML tags inside your editor. 
+Since nested selectors are now widely supported, you can scope your styles to the .tiptap class:
+
+*/
+
+.tiptap {
+  h1 {
+    @apply text-3xl font-bold;
+  }
+  h2 {
+    @apply text-2xl font-bold;
+  }
+  h3 {
+    @apply text-xl font-bold;
+  }
+  p {
+    @apply first:mt-0 last:mb-0 text-base leading-relaxed;
+  }
+}
