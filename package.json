@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev:fe": "npm run dev -w fe",
+    "dev:be": "npm run start:dev -w be",
+    "dev": "concurrently -r \"npm run dev:fe\" \"npm run dev:be\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -21,5 +24,8 @@
     "fe",
     "be"
   ],
-  "homepage": "https://github.com/sdsarun/labs#readme"
+  "homepage": "https://github.com/sdsarun/labs#readme",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }
