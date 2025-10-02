@@ -6,7 +6,7 @@
   "scripts": {
     "dev:fe": "npm run dev -w fe",
     "dev:be": "npm run start:dev -w be",
-    "dev": "concurrently -r \"npm run dev:fe\" \"npm run dev:be\"",
+    "dev": "concurrently -r \"npm run dev:be\" \"npm run dev:fe\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
