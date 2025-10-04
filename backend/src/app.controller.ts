@@ -11,10 +11,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { AppService } from './app.service';
-import { createReadStream, existsSync, statSync } from 'node:fs';
 import type { Request, Response } from 'express';
-import { findPackageJSON } from 'node:module';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { AppService } from './app.service';
 
 @Controller()
 export class AppController {
