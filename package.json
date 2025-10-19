@@ -1,0 +1,23 @@
+{
+  "name": "labs-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npx npm-run-all --parallel dev:*",
+    "dev:frontend": "npm run dev --workspace @labs/frontend",
+    "dev:service-auth": "npm run dev --workspace @labs/service-auth",
+    "dev:service-analytics": "npm run dev --workspace @labs/service-analytics",
+    "lint": "npm run lint --workspaces",
+    "format": "npm run format --workspaces"
+  },
+  "engines": {
+    "node": ">=20.10.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}

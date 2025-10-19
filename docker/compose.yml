@@ -1,0 +1,8 @@
+services:
+  nginx:
+    container_name: labs-nginx
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - 58080:80

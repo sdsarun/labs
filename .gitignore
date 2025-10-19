@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.DS_Store
+*.log
+tmp
+apps/*/dist
+apps/*/build
+certs/*.pem
+certs/*.csr
+certs/*.key
