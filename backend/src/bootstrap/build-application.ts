@@ -40,6 +40,9 @@ import type { RealtimeGateway } from "../frameworks/realtime/realtime-gateway";
 import { SendCustomerChatMessageUseCase } from "../application/usecases/send-customer-chat-message";
 import { SocketIoCustomerChatPublisher } from "../adapters/realtime/socket-io-customer-chat-publisher";
 import { CustomerChatSocketController } from "../adapters/realtime/customer-chat-socket-controller";
+import { NodeCronScheduler } from "../frameworks/scheduler/node-cron-scheduler";
+import type { Scheduler } from "../frameworks/scheduler/scheduler";
+import { registerCronJobs } from "./register-cron-jobs";
 
 export interface BuiltApplication {
   server: HttpServer;
@@ -47,6 +50,7 @@ export interface BuiltApplication {
   prisma?: PrismaClient;
   mongoClient?: MongoClient;
   realtime?: RealtimeGateway;
+  scheduler?: Scheduler;
   shutdown(): Promise<void>;
 }
 
@@ -78,6 +82,7 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
   const realtime = new SocketIoGateway(server.getRawServer(), { logger });
   const chatPublisher = new SocketIoCustomerChatPublisher(realtime);
   const sendCustomerChatMessage = new SendCustomerChatMessageUseCase(chatPublisher);
+  const scheduler = new NodeCronScheduler(logger, config.cronTimezone);
 
   new CustomerChatSocketController(realtime, sendCustomerChatMessage, logger);
 
@@ -121,17 +126,27 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
   server.register(new HealthHttpController(logger));
   server.register(new DocsHttpController());
 
+  registerCronJobs({
+    scheduler,
+    logger,
+    listCustomers,
+    listBookings,
+    config
+  });
+
   return {
     server,
     logger,
     prisma,
     mongoClient,
     realtime,
+    scheduler,
     async shutdown() {
       await realtime.close().catch(() => undefined);
       await server.close().catch(() => undefined);
       await prisma?.$disconnect().catch(() => undefined);
       await mongoClient?.close().catch(() => undefined);
+      await scheduler.shutdown().catch(() => undefined);
     }
   };
 }
