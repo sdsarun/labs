@@ -1,0 +1,25 @@
+{
+  "name": "labs",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev:all": "npm run dev --if-present",
+    "dev:fe": "npm run dev -w frontend"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sdsarun/labs.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sdsarun/labs/issues"
+  },
+  "homepage": "https://github.com/sdsarun/labs#readme",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
+}
