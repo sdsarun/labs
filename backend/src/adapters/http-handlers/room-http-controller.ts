@@ -7,7 +7,9 @@ import type { DeleteRoomUseCase } from "../../application/usecases/delete-room";
 import type { BaseLogger } from "../logger/base-logger";
 import type { RoomType } from "../../domain/room/room-entity";
 import { NotFoundError, ValidationError } from "../../application/errors";
+import type { RealtimeGateway } from "../../frameworks/realtime/realtime-gateway";
 import { sendProblem } from "./problem-details";
+import { ensureIfMatch, ensureIfNoneMatch } from "./preconditions";
 
 type CreateRoomBody = {
   name?: string;
@@ -28,6 +30,7 @@ type Dependencies = {
   updateRoom: UpdateRoomUseCase;
   deleteRoom: DeleteRoomUseCase;
   logger: BaseLogger;
+  realtime?: RealtimeGateway;
 };
 
 export class RoomHttpController extends BaseHttpController {
@@ -52,6 +55,7 @@ export class RoomHttpController extends BaseHttpController {
             });
 
             this.deps.logger.info("Created room", { roomId: room.id });
+            this.deps.realtime?.emit("rooms:created", room);
             reply.status(201).json(room);
           } catch (error) {
             this.handleError(error, reply, "POST /rooms");
@@ -70,6 +74,10 @@ export class RoomHttpController extends BaseHttpController {
               name: typeof query.name === "string" ? query.name : undefined,
               type: isRoomType(query.type) ? query.type : undefined
             });
+
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: rooms })) {
+              return;
+            }
 
             reply.json(rooms);
           } catch (error) {
@@ -90,6 +98,9 @@ export class RoomHttpController extends BaseHttpController {
 
           try {
             const room = await this.deps.getRoom.execute({ id });
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: room })) {
+              return;
+            }
             reply.json(room);
           } catch (error) {
             this.handleError(error, reply, "GET /rooms/:id");
@@ -110,6 +121,11 @@ export class RoomHttpController extends BaseHttpController {
           const body = (request.body ?? {}) as UpdateRoomBody;
 
           try {
+            const existing = await this.deps.getRoom.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             const room = await this.deps.updateRoom.execute({
               id,
               name: body.name,
@@ -117,6 +133,7 @@ export class RoomHttpController extends BaseHttpController {
               type: body.type as RoomType | undefined
             });
 
+            this.deps.realtime?.emit("rooms:updated", room);
             reply.json(room);
           } catch (error) {
             this.handleError(error, reply, "PATCH /rooms/:id");
@@ -135,7 +152,13 @@ export class RoomHttpController extends BaseHttpController {
           }
 
           try {
+            const existing = await this.deps.getRoom.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             await this.deps.deleteRoom.execute({ id });
+            this.deps.realtime?.emit("rooms:deleted", { id });
             reply.noContent();
           } catch (error) {
             this.handleError(error, reply, "DELETE /rooms/:id");

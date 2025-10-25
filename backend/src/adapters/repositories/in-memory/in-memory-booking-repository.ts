@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Booking, type BookingAttributes, type BookingStatus } from "../../../domain/booking/booking-entity";
-import { BookingRepository } from "../../../domain/booking/booking-repository";
+import type { BookingRepository } from "../../../domain/booking/booking-repository";
 
-export class InMemoryBookingRepository extends BookingRepository {
+export class InMemoryBookingRepository implements BookingRepository {
   private bookings: Booking[] = [];
 
   async findOneById({ id }: { id: string }): Promise<Booking | null> {

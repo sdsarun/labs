@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { PrismaClient as PrismaClientImpl } from "../../generated/prisma/client";
+import { MongoClient } from "mongodb";
 import type { AppConfig } from "../config/app-config";
 import type { UnitOfWork } from "../application/types/unit-of-work";
 import { PinoLogger } from "../adapters/logger/pino-logger";
@@ -9,6 +10,7 @@ import { InMemoryRoomRepository } from "../adapters/repositories/in-memory/in-me
 import { InMemoryBookingRepository } from "../adapters/repositories/in-memory/in-memory-booking-repository";
 import { InMemoryUnitOfWork } from "../adapters/unit-of-work/in-memory-unit-of-work";
 import { PrismaUnitOfWork } from "../adapters/unit-of-work/prisma-unit-of-work";
+import { MongoUnitOfWork } from "../adapters/unit-of-work/mongo-unit-of-work";
 import { CreateCustomerUseCase } from "../application/usecases/create-customer";
 import { GetCustomerUseCase } from "../application/usecases/get-customer";
 import { ListCustomersUseCase } from "../application/usecases/list-customers";
@@ -33,18 +35,22 @@ import { DocsHttpController } from "../adapters/http-handlers/docs-http-controll
 import { FastifyHttpServer } from "../frameworks/fastify/http/server";
 import { ExpressHttpServer } from "../frameworks/express/http/server";
 import type { HttpServer } from "../adapters/http-handlers/base-http-handler";
+import { SocketIoGateway } from "../frameworks/realtime/socket-io-gateway";
+import type { RealtimeGateway } from "../frameworks/realtime/realtime-gateway";
 
 export interface BuiltApplication {
   server: HttpServer;
   logger: BaseLogger;
   prisma?: PrismaClient;
+  mongoClient?: MongoClient;
+  realtime?: RealtimeGateway;
   shutdown(): Promise<void>;
 }
 
 export async function buildApplication(config: AppConfig): Promise<BuiltApplication> {
   const logger = new PinoLogger({ level: config.logLevel });
 
-  const { unitOfWork, prisma } = createUnitOfWork(config, logger);
+  const { unitOfWork, prisma, mongoClient } = await createUnitOfWork(config, logger);
 
   const createCustomer = new CreateCustomerUseCase(unitOfWork);
   const getCustomer = new GetCustomerUseCase(unitOfWork);
@@ -66,6 +72,7 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
   const deleteBooking = new DeleteBookingUseCase(unitOfWork);
 
   const server = createHttpServer(config, logger);
+  const realtime = new SocketIoGateway(server.getRawServer(), { logger });
 
   server.register(
     new CustomerHttpController({
@@ -75,7 +82,8 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
       listCustomersWithBookings,
       updateCustomer,
       deleteCustomer,
-      logger
+      logger,
+      realtime
     })
   );
 
@@ -86,7 +94,8 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
       listRooms,
       updateRoom,
       deleteRoom,
-      logger
+      logger,
+      realtime
     })
   );
 
@@ -97,7 +106,8 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
       listBookings,
       updateBooking,
       deleteBooking,
-      logger
+      logger,
+      realtime
     })
   );
 
@@ -108,17 +118,21 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
     server,
     logger,
     prisma,
+    mongoClient,
+    realtime,
     async shutdown() {
+      await realtime.close().catch(() => undefined);
       await server.close().catch(() => undefined);
       await prisma?.$disconnect().catch(() => undefined);
+      await mongoClient?.close().catch(() => undefined);
     }
   };
 }
 
-function createUnitOfWork(
+async function createUnitOfWork(
   config: AppConfig,
   logger: BaseLogger
-): { unitOfWork: UnitOfWork; prisma?: PrismaClient } {
+): Promise<{ unitOfWork: UnitOfWork; prisma?: PrismaClient; mongoClient?: MongoClient }> {
   if (config.dataDriver === "memory") {
     logger.debug("Using in-memory data driver");
     const customers = new InMemoryCustomerRepository();
@@ -130,6 +144,20 @@ function createUnitOfWork(
         rooms,
         bookings
       })
+    };
+  }
+
+  if (config.dataDriver === "mongo") {
+    logger.debug("Using MongoDB data driver");
+    const mongoUrl = config.mongoUrl ?? "mongodb://127.0.0.1:27017";
+    const mongoDbName = config.mongoDbName ?? "labs";
+    const mongoClient = new MongoClient(mongoUrl);
+    await mongoClient.connect();
+    const db = mongoClient.db(mongoDbName);
+
+    return {
+      unitOfWork: new MongoUnitOfWork(db),
+      mongoClient
     };
   }
 

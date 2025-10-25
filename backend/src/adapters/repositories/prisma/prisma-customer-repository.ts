@@ -1,14 +1,12 @@
 import { Prisma, PrismaClient } from "../../../../generated/prisma/client";
 import type { Customer as PrismaCustomer } from "../../../../generated/prisma/client";
 import { Customer, type CustomerAttributes } from "../../../domain/customer/customer-entity";
-import { CustomerRepository } from "../../../domain/customer/customer-repository";
+import type { CustomerRepository } from "../../../domain/customer/customer-repository";
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-export class PrismaCustomerRepository extends CustomerRepository {
-  constructor(private readonly prisma: PrismaClientLike) {
-    super();
-  }
+export class PrismaCustomerRepository implements CustomerRepository {
+  constructor(private readonly prisma: PrismaClientLike) {}
 
   async findOneById({ id }: { id: string }): Promise<Customer | null> {
     const record = await this.prisma.customer.findUnique({
@@ -86,15 +84,23 @@ export class PrismaCustomerRepository extends CustomerRepository {
       throw new Error("Customer name is required.");
     }
 
-    const record = await this.prisma.customer.create({
-      data: {
-        id: params.id,
-        name: params.name,
-        email: params.email ?? null
-      }
-    });
+    try {
+      const record = await this.prisma.customer.create({
+        data: {
+          id: params.id,
+          name: params.name,
+          email: params.email ?? null
+        }
+      });
 
-    return this.toEntity(record);
+      return this.toEntity(record);
+    } catch (error) {
+      if (isUniqueConstraintError(error) && isEmailTarget(error)) {
+        throw createCustomerEmailConflictError();
+      }
+
+      throw error;
+    }
   }
 
   private toEntity(record: PrismaCustomer): Customer {
@@ -145,4 +151,31 @@ export class PrismaCustomerRepository extends CustomerRepository {
 
 function isNotFoundError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
+}
+
+function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isEmailTarget(error: Prisma.PrismaClientKnownRequestError): boolean {
+  const target = error.meta?.target;
+  if (!target) {
+    return false;
+  }
+
+  if (typeof target === "string") {
+    return target.includes("email");
+  }
+
+  if (Array.isArray(target)) {
+    return target.some((field) => typeof field === "string" && field.includes("email"));
+  }
+
+  return false;
+}
+
+function createCustomerEmailConflictError(): Error {
+  const error = new Error("Customer email already exists.");
+  (error as unknown as { code: string }).code = "EMAIL_CONFLICT";
+  return error;
 }

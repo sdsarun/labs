@@ -88,4 +88,5 @@ export type HttpServer = {
   register(controller: HttpController): void;
   listen(options: HttpServerListenOptions): Promise<void>;
   close(): Promise<void>;
+  getRawServer(): import("node:http").Server;
 };

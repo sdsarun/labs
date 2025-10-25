@@ -6,8 +6,10 @@ import type { UpdateCustomerUseCase } from "../../application/usecases/update-cu
 import type { DeleteCustomerUseCase } from "../../application/usecases/delete-customer";
 import type { ListCustomersWithBookingsUseCase } from "../../application/usecases/list-customers-with-bookings";
 import type { BaseLogger } from "../logger/base-logger";
-import { NotFoundError, ValidationError } from "../../application/errors";
+import { ConflictError, NotFoundError, ValidationError } from "../../application/errors";
+import type { RealtimeGateway } from "../../frameworks/realtime/realtime-gateway";
 import { sendProblem } from "./problem-details";
+import { ensureIfMatch, ensureIfNoneMatch } from "./preconditions";
 
 type CreateCustomerBody = {
   name?: string;
@@ -27,6 +29,7 @@ type Dependencies = {
   updateCustomer: UpdateCustomerUseCase;
   deleteCustomer: DeleteCustomerUseCase;
   logger: BaseLogger;
+  realtime?: RealtimeGateway;
 };
 
 export class CustomerHttpController extends BaseHttpController {
@@ -50,6 +53,7 @@ export class CustomerHttpController extends BaseHttpController {
             });
 
             this.deps.logger.info("Created customer", { customerId: customer.id });
+            this.deps.realtime?.emit("customers:created", customer);
             reply.status(201).json(customer);
           } catch (error) {
             this.handleError(error, reply, "POST /customers");
@@ -74,11 +78,18 @@ export class CustomerHttpController extends BaseHttpController {
 
             if (include.includes("bookings")) {
               const result = await this.deps.listCustomersWithBookings.execute(baseFilters);
+              if (!ensureIfNoneMatch({ request, reply, currentRepresentation: result })) {
+                return;
+              }
               reply.json(result);
               return;
             }
 
             const customers = await this.deps.listCustomers.execute(baseFilters);
+
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: customers })) {
+              return;
+            }
 
             reply.json(customers);
           } catch (error) {
@@ -99,6 +110,9 @@ export class CustomerHttpController extends BaseHttpController {
 
           try {
             const customer = await this.deps.getCustomer.execute({ id });
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: customer })) {
+              return;
+            }
             reply.json(customer);
           } catch (error) {
             this.handleError(error, reply, "GET /customers/:id");
@@ -119,12 +133,18 @@ export class CustomerHttpController extends BaseHttpController {
           const body = (request.body ?? {}) as UpdateCustomerBody;
 
           try {
+            const existing = await this.deps.getCustomer.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             const customer = await this.deps.updateCustomer.execute({
               id,
               name: body.name,
               email: body.email
             });
 
+            this.deps.realtime?.emit("customers:updated", customer);
             reply.json(customer);
           } catch (error) {
             this.handleError(error, reply, "PATCH /customers/:id");
@@ -143,7 +163,13 @@ export class CustomerHttpController extends BaseHttpController {
           }
 
           try {
+            const existing = await this.deps.getCustomer.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             await this.deps.deleteCustomer.execute({ id });
+            this.deps.realtime?.emit("customers:deleted", { id });
             reply.noContent();
           } catch (error) {
             this.handleError(error, reply, "DELETE /customers/:id");
@@ -163,6 +189,11 @@ export class CustomerHttpController extends BaseHttpController {
 
     if (error instanceof NotFoundError) {
       sendProblem(reply, 404, "Resource not found", { detail: error.message });
+      return;
+    }
+
+    if (error instanceof ConflictError) {
+      sendProblem(reply, 409, "Conflict", { detail: error.message });
       return;
     }
 

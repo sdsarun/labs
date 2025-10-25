@@ -1,14 +1,12 @@
 import { Prisma, PrismaClient } from "../../../../generated/prisma/client";
 import type { Booking as PrismaBooking } from "../../../../generated/prisma/client";
 import { Booking, type BookingAttributes, type BookingStatus } from "../../../domain/booking/booking-entity";
-import { BookingRepository } from "../../../domain/booking/booking-repository";
+import type { BookingRepository } from "../../../domain/booking/booking-repository";
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-export class PrismaBookingRepository extends BookingRepository {
-  constructor(private readonly prisma: PrismaClientLike) {
-    super();
-  }
+export class PrismaBookingRepository implements BookingRepository {
+  constructor(private readonly prisma: PrismaClientLike) {}
 
   async findOneById({ id }: { id: string }): Promise<Booking | null> {
     const record = await this.prisma.booking.findUnique({ where: { id } });

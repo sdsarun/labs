@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Customer, CustomerAttributes } from "../../../domain/customer/customer-entity";
-import { CustomerRepository } from "../../../domain/customer/customer-repository";
+import type { CustomerRepository } from "../../../domain/customer/customer-repository";
 
-export class InMemoryCustomerRepository extends CustomerRepository {
+export class InMemoryCustomerRepository implements CustomerRepository {
   private customers: Customer[] = [];
 
   async findOneById({ id }: { id: string }): Promise<Customer | null> {
@@ -50,10 +50,10 @@ export class InMemoryCustomerRepository extends CustomerRepository {
   }: {
     id: string;
     payload: Partial<CustomerAttributes>;
-  }): Promise<Customer> {
+  }): Promise<Customer | null> {
     const customer = await this.findOneById({ id });
     if (!customer) {
-      throw new Error(`Customer with id "${id}" was not found.`);
+      return null;
     }
 
     const updates = this.extractAttributes(payload);
@@ -78,6 +78,15 @@ export class InMemoryCustomerRepository extends CustomerRepository {
 
     if (this.customers.some((customer) => customer.id === id)) {
       throw new Error(`Customer with id "${id}" already exists.`);
+    }
+
+    if (
+      attributes.email &&
+      this.customers.some(
+        (existing) => (existing.toJSON() as CustomerAttributes).email === attributes.email
+      )
+    ) {
+      throw createCustomerEmailConflictError();
     }
 
     const customer = new Customer({
@@ -123,4 +132,10 @@ export class InMemoryCustomerRepository extends CustomerRepository {
   importData(data: CustomerAttributes[]): void {
     this.customers = data.map((attributes) => new Customer(attributes));
   }
+}
+
+function createCustomerEmailConflictError(): Error {
+  const error = new Error("Customer email already exists.");
+  (error as unknown as { code: string }).code = "EMAIL_CONFLICT";
+  return error;
 }

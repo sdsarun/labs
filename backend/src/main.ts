@@ -1,7 +1,8 @@
-import "./utils/env";
-
 import { loadConfigFromEnv } from "./config/app-config";
 import { buildApplication } from "./bootstrap/build-application";
+import { loadEnv } from "./utils/env";
+
+loadEnv();
 
 async function bootstrap() {
   const config = loadConfigFromEnv(process.env);

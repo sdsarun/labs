@@ -6,7 +6,7 @@ import express, {
   type Response
 } from "express";
 import { randomUUID } from "node:crypto";
-import { type Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import {
   type HttpContext,
   type HttpController,
@@ -20,7 +20,13 @@ import {
   type HttpServer,
   type HttpServerListenOptions
 } from "../../../adapters/http-handlers/base-http-handler";
-import { BaseLogger } from "../../../adapters/logger/base-logger";
+import type { BaseLogger } from "../../../adapters/logger/base-logger";
+import {
+  generateWeakEtag,
+  isReadableStream,
+  matchesIfNoneMatch,
+  toEtagBuffer
+} from "../../http/etag-utils";
 
 export type ExpressHttpServerOptions = {
   app?: Express;
@@ -32,7 +38,7 @@ export class ExpressHttpServer implements HttpServer {
   private readonly app: Express;
   private readonly router: ExpressHttpRouter;
   private readonly logger?: BaseLogger;
-  private httpServer?: Server;
+  private readonly httpServer: Server;
 
   constructor(options: ExpressHttpServerOptions = {}) {
     this.app = options.app ?? express();
@@ -42,7 +48,9 @@ export class ExpressHttpServer implements HttpServer {
       options.configureApp(this.app);
     }
 
+    this.registerEtagMiddleware();
     this.router = new ExpressHttpRouter(this.app, this.logger);
+    this.httpServer = createServer(this.app);
   }
 
   register(controller: HttpController): void {
@@ -50,14 +58,16 @@ export class ExpressHttpServer implements HttpServer {
   }
 
   async listen(options: HttpServerListenOptions): Promise<void> {
-    if (this.httpServer) {
-      return;
-    }
-
     await new Promise<void>((resolve, reject) => {
-      const server = this.app.listen(options.port, options.host ?? "0.0.0.0", () => resolve());
-      server.on("error", reject);
-      this.httpServer = server;
+      const onError = (error: Error) => {
+        this.httpServer.off("error", onError);
+        reject(error);
+      };
+      this.httpServer.once("error", onError);
+      this.httpServer.listen(options.port, options.host ?? "0.0.0.0", () => {
+        this.httpServer.off("error", onError);
+        resolve();
+      });
     });
 
     this.logger?.info("HTTP server listening", {
@@ -68,12 +78,8 @@ export class ExpressHttpServer implements HttpServer {
   }
 
   async close(): Promise<void> {
-    if (!this.httpServer) {
-      return;
-    }
-
     await new Promise<void>((resolve, reject) => {
-      this.httpServer?.close((error) => {
+      this.httpServer.close((error) => {
         if (error) {
           reject(error);
           return;
@@ -81,12 +87,45 @@ export class ExpressHttpServer implements HttpServer {
         resolve();
       });
     });
-
-    this.httpServer = undefined;
   }
 
   get instance(): Express {
     return this.app;
+  }
+
+  getRawServer(): Server {
+    return this.httpServer;
+  }
+
+  private registerEtagMiddleware(): void {
+    this.app.use((req, res, next) => {
+      if (!shouldTrackResponse(req)) {
+        next();
+        return;
+      }
+
+      const originalSend = res.send.bind(res);
+      res.send = (body?: unknown) => {
+        if (shouldAttachEtag(req, res, body)) {
+          const buffer = toEtagBuffer(body);
+          if (buffer) {
+            const etag = generateWeakEtag(buffer);
+            res.setHeader("etag", etag);
+
+            if (matchesIfNoneMatch(req.headers as Record<string, unknown>, etag)) {
+              res.removeHeader("content-length");
+              res.removeHeader("content-type");
+              res.status(304);
+              res.end();
+              return res;
+            }
+          }
+        }
+        return originalSend(body);
+      };
+
+      next();
+    });
   }
 }
 
@@ -220,6 +259,41 @@ class ExpressHttpReplyAdapter implements HttpReply {
   noContent(): void {
     this.response.status(204).end();
   }
+}
+
+function shouldTrackResponse(req: Request): boolean {
+  const method = req.method.toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
+function shouldAttachEtag(req: Request, res: Response, body: unknown): boolean {
+  if (res.headersSent || res.getHeader("etag")) {
+    return false;
+  }
+
+  const statusCode = res.statusCode;
+  if (statusCode < 200 || statusCode === 204 || statusCode === 304) {
+    return false;
+  }
+
+  if (body === undefined || body === null) {
+    return false;
+  }
+
+  if (isReadableStream(body)) {
+    return false;
+  }
+
+  if (Buffer.isBuffer(body)) {
+    return true;
+  }
+
+  const type = typeof body;
+  if (type === "string" || type === "number" || type === "boolean") {
+    return true;
+  }
+
+  return type === "object";
 }
 
 function mapCookieOptions(options?: HttpCookieOptions): CookieOptions | undefined {

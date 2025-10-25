@@ -1,8 +1,4 @@
-import {
-  BaseHttpController,
-  type HttpReply,
-  type HttpRouteDefinition,
-} from "./base-http-handler";
+import { BaseHttpController, type HttpReply, type HttpRouteDefinition } from "./base-http-handler";
 import type { CreateBookingUseCase } from "../../application/usecases/create-booking";
 import type { GetBookingUseCase } from "../../application/usecases/get-booking";
 import type { ListBookingsUseCase } from "../../application/usecases/list-bookings";
@@ -11,7 +7,9 @@ import type { DeleteBookingUseCase } from "../../application/usecases/delete-boo
 import type { BookingStatus } from "../../domain/booking/booking-entity";
 import type { BaseLogger } from "../logger/base-logger";
 import { NotFoundError, ValidationError } from "../../application/errors";
+import type { RealtimeGateway } from "../../frameworks/realtime/realtime-gateway";
 import { sendProblem } from "./problem-details";
+import { ensureIfMatch, ensureIfNoneMatch } from "./preconditions";
 
 type CreateBookingBody = {
   customerId?: string;
@@ -36,6 +34,7 @@ type Dependencies = {
   updateBooking: UpdateBookingUseCase;
   deleteBooking: DeleteBookingUseCase;
   logger: BaseLogger;
+  realtime?: RealtimeGateway;
 };
 
 export class BookingHttpController extends BaseHttpController {
@@ -58,15 +57,16 @@ export class BookingHttpController extends BaseHttpController {
               roomId: body.roomId ?? "",
               startDate: body.startDate ?? "",
               endDate: body.endDate ?? "",
-              status: body.status,
+              status: body.status
             });
 
             this.deps.logger.info("Created booking", { bookingId: booking.id });
+            this.deps.realtime?.emit("bookings:created", booking);
             reply.status(201).json(booking);
           } catch (error) {
             this.handleError(error, reply, "POST /bookings");
           }
-        },
+        }
       },
       {
         method: "GET",
@@ -79,14 +79,18 @@ export class BookingHttpController extends BaseHttpController {
             const bookings = await this.deps.listBookings.execute({
               customerId: typeof query.customerId === "string" ? query.customerId : undefined,
               roomId: typeof query.roomId === "string" ? query.roomId : undefined,
-              status: isBookingStatus(query.status) ? query.status : undefined,
+              status: isBookingStatus(query.status) ? query.status : undefined
             });
+
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: bookings })) {
+              return;
+            }
 
             reply.json(bookings);
           } catch (error) {
             this.handleError(error, reply, "GET /bookings");
           }
-        },
+        }
       },
       {
         method: "GET",
@@ -101,11 +105,14 @@ export class BookingHttpController extends BaseHttpController {
 
           try {
             const booking = await this.deps.getBooking.execute({ id });
+            if (!ensureIfNoneMatch({ request, reply, currentRepresentation: booking })) {
+              return;
+            }
             reply.json(booking);
           } catch (error) {
             this.handleError(error, reply, "GET /bookings/:id");
           }
-        },
+        }
       },
       {
         method: "PATCH",
@@ -121,20 +128,26 @@ export class BookingHttpController extends BaseHttpController {
           const body = (request.body ?? {}) as UpdateBookingBody;
 
           try {
+            const existing = await this.deps.getBooking.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             const booking = await this.deps.updateBooking.execute({
               id,
               customerId: body.customerId,
               roomId: body.roomId,
               startDate: body.startDate,
               endDate: body.endDate,
-              status: body.status,
+              status: body.status
             });
 
+            this.deps.realtime?.emit("bookings:updated", booking);
             reply.json(booking);
           } catch (error) {
             this.handleError(error, reply, "PATCH /bookings/:id");
           }
-        },
+        }
       },
       {
         method: "DELETE",
@@ -148,13 +161,19 @@ export class BookingHttpController extends BaseHttpController {
           }
 
           try {
+            const existing = await this.deps.getBooking.execute({ id });
+            if (!ensureIfMatch({ request, reply, currentRepresentation: existing })) {
+              return;
+            }
+
             await this.deps.deleteBooking.execute({ id });
+            this.deps.realtime?.emit("bookings:deleted", { id });
             reply.noContent();
           } catch (error) {
             this.handleError(error, reply, "DELETE /bookings/:id");
           }
-        },
-      },
+        }
+      }
     ];
   }
 

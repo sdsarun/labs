@@ -2,14 +2,12 @@ import { Prisma, PrismaClient } from "../../../../generated/prisma/client";
 import type { Room as PrismaRoom } from "../../../../generated/prisma/client";
 import type { RoomType as PrismaRoomType } from "../../../../generated/prisma/enums";
 import { Room, type RoomAttributes } from "../../../domain/room/room-entity";
-import { RoomRepository } from "../../../domain/room/room-repository";
+import type { RoomRepository } from "../../../domain/room/room-repository";
 
 type PrismaClientLike = PrismaClient | Prisma.TransactionClient;
 
-export class PrismaRoomRepository extends RoomRepository {
-  constructor(private readonly prisma: PrismaClientLike) {
-    super();
-  }
+export class PrismaRoomRepository implements RoomRepository {
+  constructor(private readonly prisma: PrismaClientLike) {}
 
   async findOneById({ id }: { id: string }): Promise<Room | null> {
     const record = await this.prisma.room.findUnique({

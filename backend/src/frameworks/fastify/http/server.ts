@@ -5,6 +5,7 @@ import Fastify, {
   type FastifySchema,
   type FastifyServerOptions
 } from "fastify";
+import type { Server } from "node:http";
 import {
   type HttpContext,
   type HttpController,
@@ -17,7 +18,13 @@ import {
   type HttpServer,
   type HttpServerListenOptions
 } from "../../../adapters/http-handlers/base-http-handler";
-import { BaseLogger } from "../../../adapters/logger/base-logger";
+import type { BaseLogger } from "../../../adapters/logger/base-logger";
+import {
+  generateWeakEtag,
+  isReadableStream,
+  matchesIfNoneMatch,
+  toEtagBuffer
+} from "../../http/etag-utils";
 
 export type FastifyHttpServerOptions = {
   fastify?: FastifyInstance;
@@ -34,6 +41,7 @@ export class FastifyHttpServer implements HttpServer {
     this.app = options.fastify ?? Fastify(options.fastifyOptions ?? {});
     this.logger = options.logger;
     this.router = new FastifyHttpRouter(this.app, this.logger);
+    this.registerEtagHook();
   }
 
   register(controller: HttpController): void {
@@ -54,6 +62,35 @@ export class FastifyHttpServer implements HttpServer {
 
   get instance(): FastifyInstance {
     return this.app;
+  }
+
+  getRawServer(): Server {
+    return this.app.server;
+  }
+
+  private registerEtagHook(): void {
+    this.app.addHook("onSend", async (request, reply, payload) => {
+      if (!shouldAttachEtag(request, reply, payload)) {
+        return payload;
+      }
+
+      const buffer = toEtagBuffer(payload);
+      if (!buffer) {
+        return payload;
+      }
+
+      const etag = generateWeakEtag(buffer);
+      reply.header("etag", etag);
+
+      if (matchesIfNoneMatch(request.headers as Record<string, unknown>, etag)) {
+        reply.code(304);
+        reply.removeHeader("content-length");
+        reply.removeHeader("content-type");
+        return "";
+      }
+
+      return payload;
+    });
   }
 }
 
@@ -199,7 +236,8 @@ function serializeCookie(name: string, value: string, options?: HttpCookieOption
     segments.push(`Path=${opts.path}`);
   }
 
-  const expires = opts.expires ?? (opts.maxAge !== undefined ? new Date(Date.now() + opts.maxAge * 1000) : undefined);
+  const expires =
+    opts.expires ?? (opts.maxAge !== undefined ? new Date(Date.now() + opts.maxAge * 1000) : undefined);
   if (expires) {
     segments.push(`Expires=${expires.toUTCString()}`);
   }
@@ -221,4 +259,30 @@ function serializeCookie(name: string, value: string, options?: HttpCookieOption
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function shouldAttachEtag(request: FastifyRequest, reply: FastifyReply, payload: unknown): boolean {
+  const method = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    return false;
+  }
+
+  if (reply.hasHeader("etag")) {
+    return false;
+  }
+
+  const statusCode = reply.statusCode;
+  if (statusCode < 200 || statusCode === 204 || statusCode === 304) {
+    return false;
+  }
+
+  if (payload === undefined || payload === null) {
+    return false;
+  }
+
+  if (isReadableStream(payload)) {
+    return false;
+  }
+
+  return Buffer.isBuffer(payload) || typeof payload === "string";
 }

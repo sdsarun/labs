@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Room, type RoomAttributes } from "../../../domain/room/room-entity";
-import { RoomRepository } from "../../../domain/room/room-repository";
+import type { RoomRepository } from "../../../domain/room/room-repository";
 
-export class InMemoryRoomRepository extends RoomRepository {
+export class InMemoryRoomRepository implements RoomRepository {
   private rooms: Room[] = [];
 
   async findOneById({ id }: { id: string }): Promise<Room | null> {
