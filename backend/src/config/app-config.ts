@@ -18,11 +18,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv): AppConfig {
   const httpDriver = (env.HTTP_DRIVER ?? "fastify").toLowerCase() as HttpDriver;
   const dataDriverRaw = (env.DATA_DRIVER ?? "prisma").toLowerCase();
   const dataDriver: DataDriver =
-    dataDriverRaw === "memory"
-      ? "memory"
-      : dataDriverRaw === "mongo"
-        ? "mongo"
-        : "prisma";
+    dataDriverRaw === "memory" ? "memory" : dataDriverRaw === "mongo" ? "mongo" : "prisma";
 
   return {
     logLevel: (env.LOG_LEVEL ?? "info") as LogLevel,

@@ -37,6 +37,9 @@ import { ExpressHttpServer } from "../frameworks/express/http/server";
 import type { HttpServer } from "../adapters/http-handlers/base-http-handler";
 import { SocketIoGateway } from "../frameworks/realtime/socket-io-gateway";
 import type { RealtimeGateway } from "../frameworks/realtime/realtime-gateway";
+import { SendCustomerChatMessageUseCase } from "../application/usecases/send-customer-chat-message";
+import { SocketIoCustomerChatPublisher } from "../adapters/realtime/socket-io-customer-chat-publisher";
+import { CustomerChatSocketController } from "../adapters/realtime/customer-chat-socket-controller";
 
 export interface BuiltApplication {
   server: HttpServer;
@@ -73,6 +76,10 @@ export async function buildApplication(config: AppConfig): Promise<BuiltApplicat
 
   const server = createHttpServer(config, logger);
   const realtime = new SocketIoGateway(server.getRawServer(), { logger });
+  const chatPublisher = new SocketIoCustomerChatPublisher(realtime);
+  const sendCustomerChatMessage = new SendCustomerChatMessageUseCase(chatPublisher);
+
+  new CustomerChatSocketController(realtime, sendCustomerChatMessage, logger);
 
   server.register(
     new CustomerHttpController({
