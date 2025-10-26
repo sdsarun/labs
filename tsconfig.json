@@ -1,0 +1,16 @@
+// Which version of JavaScript to translate into → target
+// What module system to use (how import/export works) → module
+// How to find files you import → moduleResolution
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "target": "ES2022",
+    "moduleResolution": "nodenext",
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "strict": true
+  }
+}
